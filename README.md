@@ -1,38 +1,38 @@
 # Broadcast the property update once
 
-We model one member announcement as a typed domain object. We create one realtime channel per property. Then we publish the validated message through Infrai with one key for delivery. That keeps the Pusher migration focused. The service owns the announcement shape. Infrai owns channel fan-out.
+Here the choice is simple: represent one member announcement as a typed domain object, create one realtime channel for the property, and publish the validated message through Infrai. That keeps the Pusher migration narrow and easy to reason about. Your service defines the announcement shape. Infrai handles channel delivery.
 
-The working code lives in [`src/broadcast_announcement.ts`](src/broadcast_announcement.ts). It takes a maintenance request, a tenant doc, and an inspection reminder. Zod validates all three. Then it creates `property-{propertyId}-members` and publishes `property.announcement` to the audience account. Gotcha: browser clients need a token from a server-side flow. This example keeps the API key server-side. No key ships to the browser.
+The working code lives in [`src/broadcast_announcement.ts`](src/broadcast_announcement.ts). It takes a maintenance request, a tenant document, and an inspection reminder, validates all three with zod, creates `property-{propertyId}-members`, then publishes `property.announcement` with the audience account. The main thing to remember is browser auth: when you add a browser client, it should receive a token from a server-side token flow. This example keeps the API key on the service and never sends it to the browser.
 
 ## Run the business decision locally
 
-Install deps with `npm install`. Then run:
+Install dependencies with `npm install`, then run:
 
 ```sh
 npm test
 ```
 
-The input is the Oak Court announcement in `src/broadcast_announcement.test.ts`. Expect one `property.announcement` event. Its data holds the maintenance request, tenant doc, and inspection reminder. The test is deterministic. It never calls Infrai.
+The input is the Oak Court announcement in `src/broadcast_announcement.test.ts`. The expected result is one `property.announcement` event whose data includes the maintenance request, tenant document, and inspection reminder. This test is deterministic. It does not call Infrai.
 
 ## Send one real broadcast
 
-Export `INFRAI_API_KEY` and `INFRAI_ACCOUNT_ID` in your shell. Then run:
+Set `INFRAI_API_KEY` and `INFRAI_ACCOUNT_ID` in your shell, then run:
 
 ```sh
 npm start
 ```
 
-The service reads the envelope first. It decides if the request worked. A rejected envelope becomes an error. On HTTP 429 it backs off and honors `Retry-After`. Create and publish bodies use the documented fields. The channel name is stable per property. Re-runs hit the same member channel.
+The service reads the envelope before deciding if the request succeeded, raises a rejected envelope as an error, and backs off on HTTP 429 while honoring `Retry-After`. The create and publish bodies match the documented fields, and the channel name stays stable for the property, so running it again targets the same member channel.
 
 ## Cutover and rollback
 
-Migrating from Pusher? First compare the old member list with the `account_id` used here. Send a staging announcement. Verify each property channel has the right members. During cutover, keep the old publisher live. Switch one property at a time. Record the returned channel and event. To roll back, route that property to the incumbent publisher. Stop this service's publish step. Source data stays same because we assemble the announcement before delivery.
+For a Pusher migration, start by comparing the old member list with the `account_id` used here. Send a staging announcement. Then confirm each property channel has the members you expect. During cutover, leave the old publisher in place, switch one property at a time, and record the returned channel and event. To roll back, route that property back to the incumbent publisher and stop this service's publish step. The source data does not change, because the announcement is assembled before delivery.
 
 ## Why this shape is useful in a course
 
-This example shows the boundary students miss. Zod validates the request. A thin Infrai call layer handles the `{ok, data, error, metadata}` envelope. The domain function makes the observable broadcast call. Infrai is a single REST interface with one key for this realtime capability. So the migration lesson lives in code, not in a fat SDK wrapper.
+This is the boundary most students need to see. zod validates the application request. A small Infrai call layer handles the `{ok, data, error, metadata}` envelope. The domain function makes the broadcast decision you can observe and test. Infrai gives you a plain REST interface with one key for this realtime capability, so the migration stays focused on code instead of disappearing into a big SDK wrapper.
 
-The service is small on purpose. No member storage. No browser subscription. No maintenance DB. Those sit around this boundary in a real property app.
+The service is intentionally small. It does not implement member storage, browser subscription logic, or a persistent maintenance database. In a full property-management app, those pieces sit around this boundary.
 
 ## Setting up for real use: Property Announcement Broadcast
 
